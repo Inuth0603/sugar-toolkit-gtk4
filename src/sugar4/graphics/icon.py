@@ -583,9 +583,10 @@ class Icon(Gtk.Widget):
         pixel_size: int = STANDARD_ICON_SIZE,
         **kwargs,
     ):
+        self._buffer = _IconBuffer()
+        
         super().__init__(**kwargs)
 
-        self._buffer = _IconBuffer()
         self._buffer.icon_name = icon_name
         self._buffer.file_name = file_name
         self._buffer.width = pixel_size
@@ -606,21 +607,16 @@ class Icon(Gtk.Widget):
             y = (height - surface.get_height()) / 2
 
             snapshot.save()
-            snapshot.translate(Graphene.Point().init(x, y))
-
-            # Convert surface to pixbuf then to texture
-            pixbuf = Gdk.pixbuf_get_from_surface(
-                surface, 0, 0, surface.get_width(), surface.get_height()
-            )
-            if pixbuf:
-                texture = Gdk.Texture.new_for_pixbuf(pixbuf)
-                snapshot.append_texture(
-                    texture,
-                    Graphene.Rect().init(
-                        0, 0, surface.get_width(), surface.get_height()
-                    ),
-                )
-            snapshot.restore()
+            try:
+                snapshot.translate(Graphene.Point().init(x, y))
+                bounds = Graphene.Rect().init(0, 0, surface.get_width(), surface.get_height())
+                cr = snapshot.append_cairo(bounds)
+                cr.set_source_surface(surface, 0, 0)
+                cr.paint()
+            except Exception as e:
+                logging.error("Icon snapshot failed: %s", e)
+            finally:
+                snapshot.restore()
 
     def do_measure(
         self, orientation: Gtk.Orientation, for_size: int
@@ -655,6 +651,13 @@ class Icon(Gtk.Widget):
             self._buffer.height = size
             self.set_size_request(size, size)
             self.queue_resize()
+
+    # Legacy aliases for compatibility
+    def get_size(self) -> int:
+        return self.get_pixel_size()
+
+    def set_size(self, size: int):
+        self.set_pixel_size(size)
 
     def get_fill_color(self) -> Optional[str]:
         return self._buffer.fill_color
@@ -715,6 +718,9 @@ class Icon(Gtk.Widget):
         type=str, default=None, getter=get_icon_name, setter=set_icon_name
     )
     file_name = GObject.Property(
+        type=str, default=None, getter=get_file_name, setter=set_file_name
+    )
+    file = GObject.Property(
         type=str, default=None, getter=get_file_name, setter=set_file_name
     )
     pixel_size = GObject.Property(
@@ -802,6 +808,11 @@ class EventIcon(Icon):
         # Set up gesture handling
         self._setup_gestures()
 
+        # Set up palette invoker (restoring GTK3 behavior)
+        from sugar4.graphics.palette import CursorInvoker, Palette
+        self._palette_invoker = CursorInvoker()
+        self._palette_invoker.attach(self)
+
     def _setup_gestures(self):
         """Set up gesture controllers for event handling."""
         # Click gesture
@@ -853,6 +864,46 @@ class EventIcon(Icon):
     cache = GObject.Property(
         type=bool, default=True, getter=get_cache, setter=set_cache
     )
+
+    def get_palette_invoker(self):
+        return getattr(self, "_palette_invoker", None)
+
+    def set_palette_invoker(self, palette_invoker):
+        if hasattr(self, "_palette_invoker") and self._palette_invoker:
+            self._palette_invoker.detach()
+        self._palette_invoker = palette_invoker
+        if self._palette_invoker:
+            self._palette_invoker.attach(self)
+
+    palette_invoker = GObject.Property(
+        type=object, setter=set_palette_invoker, getter=get_palette_invoker
+    )
+
+    def create_palette(self):
+        return None
+
+    def get_palette(self):
+        if hasattr(self, "_palette_invoker") and self._palette_invoker:
+            return self._palette_invoker.get_palette()
+        return None
+
+    def set_palette(self, palette):
+        if hasattr(self, "_palette_invoker") and self._palette_invoker:
+            self._palette_invoker.set_palette(palette)
+
+    palette = GObject.Property(
+        type=object, setter=set_palette, getter=get_palette
+    )
+
+    def connect_to_palette_pop_events(self, palette):
+        palette.connect('popup', self.__palette_popup_cb)
+        palette.connect('popdown', self.__palette_popdown_cb)
+
+    def __palette_popup_cb(self, palette):
+        self.set_state_flags(Gtk.StateFlags.ACTIVE, False)
+
+    def __palette_popdown_cb(self, palette):
+        self.unset_state_flags(Gtk.StateFlags.ACTIVE)
 
 
 class CanvasIcon(EventIcon):
@@ -938,7 +989,7 @@ class CanvasIcon(EventIcon):
 
 
 # Simplified cell renderer for list/tree view compatibility
-class CellRendererIcon:
+class CellRendererIcon(Gtk.CellRenderer):
     """
     Icon renderer for use in list/tree views.
 
@@ -947,32 +998,87 @@ class CellRendererIcon:
 
     Note: Consider using modern list/tree widget patterns instead.
     """
+    __gtype_name__ = 'SugarCellRendererIcon'
 
-    def __init__(self):
+    __gsignals__ = {
+        'clicked': (GObject.SignalFlags.RUN_FIRST, None, ([str]))
+    }
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         self._buffer = _IconBuffer()
         self._buffer.cache = True
         self._xo_color = None
         self._prelit_fill_color = None
         self._prelit_stroke_color = None
 
-    def set_icon_name(self, icon_name: str):
-        self._buffer.icon_name = icon_name
+    def get_icon_name(self) -> Optional[str]:
+        return self._buffer.icon_name
 
-    def set_file_name(self, file_name: str):
-        self._buffer.file_name = file_name
+    def set_icon_name(self, icon_name: Optional[str]):
+        if self._buffer.icon_name != icon_name:
+            self._buffer.icon_name = icon_name
 
-    def set_xo_color(self, xo_color: XoColor):
+    icon_name = GObject.Property(type=str, getter=get_icon_name, setter=set_icon_name)
+
+    def get_file_name(self) -> Optional[str]:
+        return self._buffer.file_name
+
+    def set_file_name(self, file_name: Optional[str]):
+        if self._buffer.file_name != file_name:
+            self._buffer.file_name = file_name
+
+    file_name = GObject.Property(type=str, getter=get_file_name, setter=set_file_name)
+    file = GObject.Property(type=str, getter=get_file_name, setter=set_file_name)
+
+    def get_xo_color(self) -> Optional[XoColor]:
+        return self._xo_color
+
+    def set_xo_color(self, xo_color: Optional[XoColor]):
         self._xo_color = xo_color
 
-    def set_fill_color(self, color: str):
+    xo_color = GObject.Property(type=object, getter=get_xo_color, setter=set_xo_color)
+
+    def get_fill_color(self) -> Optional[str]:
+        return self._buffer.fill_color
+
+    def set_fill_color(self, color: Optional[str]):
         self._buffer.fill_color = color
 
-    def set_stroke_color(self, color: str):
+    fill_color = GObject.Property(type=str, getter=get_fill_color, setter=set_fill_color)
+
+    def get_stroke_color(self) -> Optional[str]:
+        return self._buffer.stroke_color
+
+    def set_stroke_color(self, color: Optional[str]):
         self._buffer.stroke_color = color
+
+    stroke_color = GObject.Property(type=str, getter=get_stroke_color, setter=set_stroke_color)
+
+    def get_size(self) -> int:
+        return self._buffer.width
 
     def set_size(self, size: int):
         self._buffer.width = size
         self._buffer.height = size
+
+    size = GObject.Property(type=int, default=STANDARD_ICON_SIZE, getter=get_size, setter=set_size)
+
+    def get_prelit_fill_color(self) -> Optional[str]:
+        return self._prelit_fill_color
+
+    def set_prelit_fill_color(self, color: Optional[str]):
+        self._prelit_fill_color = color
+
+    prelit_fill_color = GObject.Property(type=str, getter=get_prelit_fill_color, setter=set_prelit_fill_color)
+
+    def get_prelit_stroke_color(self) -> Optional[str]:
+        return self._prelit_stroke_color
+
+    def set_prelit_stroke_color(self, color: Optional[str]):
+        self._prelit_stroke_color = color
+
+    prelit_stroke_color = GObject.Property(type=str, getter=get_prelit_stroke_color, setter=set_prelit_stroke_color)
 
     def get_surface(self, sensitive: bool = True) -> Optional[cairo.ImageSurface]:
         """Get rendered surface."""
@@ -981,6 +1087,34 @@ class CellRendererIcon:
             self._buffer.stroke_color = self._xo_color.get_stroke_color()
 
         return self._buffer.get_surface(sensitive)
+
+    def do_snapshot(self, snapshot, widget, background_area, cell_area, flags):
+        surface = self.get_surface(True)
+        if surface:
+            x = cell_area.x + (cell_area.width - surface.get_width()) / 2
+            y = cell_area.y + (cell_area.height - surface.get_height()) / 2
+
+            snapshot.save()
+            try:
+                snapshot.translate(Graphene.Point().init(x, y))
+                bounds = Graphene.Rect().init(0, 0, surface.get_width(), surface.get_height())
+                cr = snapshot.append_cairo(bounds)
+                cr.set_source_surface(surface, 0, 0)
+                cr.paint()
+            except Exception as e:
+                logging.error("CellRendererIcon snapshot failed: %s", e)
+            finally:
+                snapshot.restore()
+
+    def do_get_size(self, widget, cell_area):
+        # Return (x_offset, y_offset, width, height)
+        # We can just return the size requested
+        size = self._buffer.width
+        return (0, 0, size, size)
+
+    def do_activate(self, event, widget, path, background_area, cell_area, flags):
+        self.emit('clicked', path)
+        return True
 
 
 # Utility functions

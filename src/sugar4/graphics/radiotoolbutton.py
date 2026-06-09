@@ -67,10 +67,10 @@ class RadioToolButton(ToolButton):
             group: Another RadioToolButton to group with, or None for new group
             **kwargs: Additional arguments passed to ToolButton
         """
-        super().__init__(**kwargs)
-
         self._group = []
         self._active = False
+
+        super().__init__(**kwargs)
 
         # Set up radio group
         if group is not None:

@@ -206,7 +206,17 @@ class _IconBuffer:
         if self.stroke_color:
             entities["stroke_color"] = self.stroke_color
 
-        return self._loader.load(file_name, entities, self.cache)
+        # Handle Color objects
+        processed_entities = {}
+        for k, v in entities.items():
+            if hasattr(v, 'get_svg'):
+                processed_entities[k] = v.get_svg()
+            elif hasattr(v, 'get_html'):
+                processed_entities[k] = v.get_html()
+            else:
+                processed_entities[k] = v
+
+        return self._loader.load(file_name, processed_entities, self.cache)
 
     def _get_attach_points(self, file_name: str) -> Tuple[float, float]:
         """Get badge attachment points from .icon file."""
@@ -592,9 +602,6 @@ class Icon(Gtk.Widget):
         self._buffer.width = pixel_size
         self._buffer.height = pixel_size
 
-        # Set up drawing
-        self.set_size_request(pixel_size, pixel_size)
-
     def do_snapshot(self, snapshot: Gtk.Snapshot):
         """Render icon using snapshot-based drawing."""
         surface = self._buffer.get_surface(self.get_sensitive())
@@ -618,12 +625,34 @@ class Icon(Gtk.Widget):
             finally:
                 snapshot.restore()
 
+        # Snapshot any children (e.g., attached Popovers)
+        child = self.get_first_child()
+        while child:
+            self.snapshot_child(child, snapshot)
+            child = child.get_next_sibling()
+
     def do_measure(
         self, orientation: Gtk.Orientation, for_size: int
     ) -> Tuple[int, int, int, int]:
         """Calculate widget size requirements."""
+        surface = self._buffer.get_surface(self.get_sensitive())
+        if surface:
+            if orientation == Gtk.Orientation.HORIZONTAL:
+                size = surface.get_width()
+            else:
+                size = surface.get_height()
+            return size, size, -1, -1
+
         size = max(self._buffer.width, self._buffer.height)
         return size, size, -1, -1
+
+    def do_size_allocate(self, width: int, height: int, baseline: int):
+        """Allocate layout space to children."""
+        child = self.get_first_child()
+        while child:
+            if child.get_visible() and not isinstance(child, Gtk.Native):
+                child.allocate(width, height, baseline, None)
+            child = child.get_next_sibling()
 
     # Properties
     def get_icon_name(self) -> Optional[str]:
@@ -649,8 +678,8 @@ class Icon(Gtk.Widget):
         if self._buffer.width != size:
             self._buffer.width = size
             self._buffer.height = size
-            self.set_size_request(size, size)
             self.queue_resize()
+            self.queue_draw()
 
     # Legacy aliases for compatibility
     def get_size(self) -> int:
@@ -896,8 +925,10 @@ class EventIcon(Icon):
     )
 
     def connect_to_palette_pop_events(self, palette):
-        palette.connect('popup', self.__palette_popup_cb)
-        palette.connect('popdown', self.__palette_popdown_cb)
+        if palette is not None:
+            palette.props.invoker = self.palette_invoker
+            palette.connect('popup', self.__palette_popup_cb)
+            palette.connect('popdown', self.__palette_popdown_cb)
 
     def __palette_popup_cb(self, palette):
         self.set_state_flags(Gtk.StateFlags.ACTIVE, False)
@@ -930,12 +961,6 @@ class CanvasIcon(EventIcon):
         motion_controller.connect("leave", self._on_leave)
         self.add_controller(motion_controller)
 
-        # Override click gesture to handle states
-        click_gesture = Gtk.GestureClick()
-        click_gesture.connect("pressed", self._on_canvas_pressed)
-        click_gesture.connect("released", self._on_canvas_released)
-        self.add_controller(click_gesture)
-
     def _on_enter(self, controller, x, y):
         """Handle mouse enter."""
         self.set_state_flags(Gtk.StateFlags.PRELIGHT, False)
@@ -947,24 +972,17 @@ class CanvasIcon(EventIcon):
         # Don't change state if palette is up (would need palette integration)
         self.unset_state_flags(Gtk.StateFlags.PRELIGHT | Gtk.StateFlags.ACTIVE)
 
-    def _on_canvas_pressed(self, gesture, n_press, x, y):
+    def _on_pressed(self, gesture, n_press, x, y):
         """Handle canvas press."""
         self._button_down = True
         self.set_state_flags(Gtk.StateFlags.ACTIVE, False)
-        self.emit("pressed", x, y)
+        super()._on_pressed(gesture, n_press, x, y)
 
-    def _on_canvas_released(self, gesture, n_press, x, y):
+    def _on_released(self, gesture, n_press, x, y):
         """Handle canvas release."""
         self.unset_state_flags(Gtk.StateFlags.ACTIVE)
         self._button_down = False
-        self.emit("released", x, y)
-
-        if n_press == 1:
-            width = self.get_width()
-            height = self.get_height()
-            if 0 <= x <= width and 0 <= y <= height:
-                self.emit("clicked")
-                self.emit("activate")
+        super()._on_released(gesture, n_press, x, y)
 
     def do_snapshot(self, snapshot):
         """Override to render background based on state."""
@@ -1011,6 +1029,20 @@ class CellRendererIcon(Gtk.CellRenderer):
         self._xo_color = None
         self._prelit_fill_color = None
         self._prelit_stroke_color = None
+        self._is_scrolling = False
+
+    def connect_to_scroller(self, scrolled):
+        scrolled.connect('scroll-start', self._scroll_start_cb)
+        scrolled.connect('scroll-end', self._scroll_end_cb)
+
+    def _scroll_start_cb(self, event):
+        self._is_scrolling = True
+
+    def _scroll_end_cb(self, event):
+        self._is_scrolling = False
+
+    def is_scrolling(self):
+        return self._is_scrolling
 
     def get_icon_name(self) -> Optional[str]:
         return self._buffer.icon_name

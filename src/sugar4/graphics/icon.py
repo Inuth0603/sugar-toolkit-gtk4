@@ -593,10 +593,17 @@ class Icon(Gtk.Widget):
 
         # Set up drawing
         self.set_size_request(pixel_size, pixel_size)
+        self.connect("state-flags-changed", self._on_state_flags_changed)
+
+    def _on_state_flags_changed(self, widget, previous_flags):
+        current_insensitive = bool(self.get_state_flags() & Gtk.StateFlags.INSENSITIVE)
+        previous_insensitive = bool(previous_flags & Gtk.StateFlags.INSENSITIVE)
+        if current_insensitive != previous_insensitive:
+            self.queue_draw()
 
     def do_snapshot(self, snapshot: Gtk.Snapshot):
         """Render icon using snapshot-based drawing."""
-        surface = self._buffer.get_surface(self.get_sensitive())
+        surface = self._buffer.get_surface(self.is_sensitive())
         if surface:
             width = self.get_width()
             height = self.get_height()
@@ -759,7 +766,7 @@ class Icon(Gtk.Widget):
         Returns:
             Gtk.Image: Image widget with icon content
         """
-        surface = self._buffer.get_surface(self.get_sensitive())
+        surface = self._buffer.get_surface(self.is_sensitive())
         if surface:
             # Convert surface to pixbuf then to texture
             pixbuf = Gdk.pixbuf_get_from_surface(

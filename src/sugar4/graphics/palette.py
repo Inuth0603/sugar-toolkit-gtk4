@@ -1,4 +1,4 @@
-# Copyright (C) 2007, Eduardo Silva <edsiper@gmail.com>
+﻿# Copyright (C) 2007, Eduardo Silva <edsiper@gmail.com>
 # Copyright (C) 2008, One Laptop Per Child
 # Copyright (C) 2009, Tomeu Vizoso
 # Copyright (C) 2011, Benjamin Berg <benjamin@sipsolutions.net>
@@ -100,7 +100,6 @@ class _HeaderItem(Gtk.Widget):
         height = self.get_height()
 
         if width > 0 and height > 0:
-            # Create a colored rectangle for the separator
             color = Gdk.RGBA()
             color.red = color.green = color.blue = 0.5  # Grey
             color.alpha = 1.0
@@ -182,15 +181,26 @@ class Palette(PaletteWindow):
         labels_box.set_hexpand(True)
         self._primary_event_box.append(labels_box)
 
-        # Primary label
+        # Primary label row
+        self._primary_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        self._primary_row.set_spacing(style.DEFAULT_SPACING * 2)
+
         self._label = Gtk.Label()
         self._label.set_halign(Gtk.Align.START)
         self._label.set_valign(Gtk.Align.CENTER)
+        self._label.set_hexpand(True)
+        self._primary_row.append(self._label)
+
+        self._accel_label = Gtk.Label()
+        self._accel_label.set_halign(Gtk.Align.END)
+        self._accel_label.set_valign(Gtk.Align.CENTER)
+        self._accel_label.set_visible(False)
+        self._primary_row.append(self._accel_label)
 
         if text_maxlen > 0:
             self._label.set_max_width_chars(text_maxlen)
             self._label.set_ellipsize(style.ELLIPSIZE_MODE_DEFAULT)
-        labels_box.append(self._label)
+        labels_box.append(self._primary_row)
 
         # Secondary label
         self._secondary_label = Gtk.Label()
@@ -225,7 +235,8 @@ class Palette(PaletteWindow):
 
     def _setup_widget(self):
         super()._setup_widget()
-        self._widget.connect("destroy", self.__destroy_cb)
+        if hasattr(self._widget, "connect") and GObject.signal_lookup("destroy", self._widget):
+            self._widget.connect("destroy", self.__destroy_cb)
 
     def __destroy_cb(self, palette):
         self.popdown(immediate=True)
@@ -275,23 +286,35 @@ class Palette(PaletteWindow):
         self._secondary_box.append(self._content)
 
     def _update_accel_widget(self):
-        if (
+        accel_text = getattr(self, '_accel_path', None)
+
+        if accel_text is None and (
             self.props.invoker is not None
             and hasattr(self.props.invoker, "props")
             and hasattr(self.props.invoker.props, "widget")
         ):
-            # GTK4: Set accelerator widget if the label supports it
-            if hasattr(self._label, "set_accel_widget"):
-                self._label.set_accel_widget(self.props.invoker.props.widget)
+            widget = self.props.invoker.props.widget
+            
+            if hasattr(widget, "props") and hasattr(widget.props, "accelerator"):
+                accel_text = widget.props.accelerator
+                
+        if accel_text:
+            self._accel_label.set_text(accel_text)
+            self._accel_label.set_visible(True)
+        else:
+            self._accel_label.set_visible(False)
 
     def set_primary_text(self, label, accel_path=None):
         self._primary_text = label
+        self._accel_path = accel_path
         if label is not None:
             label = GLib.markup_escape_text(label)
             self._label.set_markup(f"<b>{label}</b>")
             self._label.set_visible(True)
         else:
             self._label.set_visible(False)
+            
+        self._update_accel_widget()
 
     def get_primary_text(self):
         return self._primary_text
@@ -402,6 +425,9 @@ class Palette(PaletteWindow):
             self._setup_widget()
 
             self._palette_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            # Guard against double-parenting: unparent first if already parented
+            if self._primary_event_box.get_parent() is not None:
+                self._primary_event_box.unparent()
             self._palette_box.append(self._primary_event_box)
             self._palette_box.append(self._secondary_box)
 
@@ -437,7 +463,6 @@ class Palette(PaletteWindow):
         self._update_separators()
 
     def __widget_button_release_cb(self, gesture, n_press, x, y):
-        # Check if the event widget is a PaletteMenuItem
         widget = gesture.get_widget()
         while widget:
             if isinstance(widget, PaletteMenuItem):
@@ -447,15 +472,12 @@ class Palette(PaletteWindow):
         return False
 
     def get_label_width(self):
-        # GTK4: Get preferred width
-        min_width, nat_width = self._label.get_preferred_size()
-        accel_width = 0
-        if hasattr(self._label, "get_accel_width"):
-            accel_width = self._label.get_accel_width()
-        return nat_width.width + accel_width
+        # GTK4 measure API returns (minimum, natural)
+        if hasattr(self, "_primary_row"):
+            return self._primary_row.measure(Gtk.Orientation.HORIZONTAL, -1)[1]
+        return self._label.measure(Gtk.Orientation.HORIZONTAL, -1)[1]
 
     def _update_separators(self):
-        # Check if there are content children
         if self._content is not None:
             visible = self._content.get_first_child() is not None
             self._separator.set_visible(visible)
@@ -491,10 +513,18 @@ class Palette(PaletteWindow):
                         child = next_child
 
                 self._teardown_widget()
-                self._widget.destroy()
+                if hasattr(self._widget, "destroy"):
+                    self._widget.destroy()
+                elif hasattr(self._widget, "unparent"):
+                    self._widget.unparent()
 
             self._widget = _PaletteMenuWidget()
 
+            # Critical: Must unparent _primary_event_box from any existing parent
+            # before re-parenting it inside _HeaderItem. Without this GTK4 aborts
+            # with "assertion failed: (priv->root == NULL)".
+            if self._primary_event_box.get_parent() is not None:
+                self._primary_event_box.unparent()
             self._label_menuitem = _HeaderItem(self._primary_event_box)
             self._widget.append(self._label_menuitem)
 
@@ -522,7 +552,6 @@ class PaletteActionBar(Gtk.Box):
 
         if icon_name:
             icon = Icon(icon_name=icon_name, pixel_size=style.SMALL_ICON_SIZE)
-            # GTK4: Use set_child instead of set_image
             box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
             box.append(icon)
             box.append(Gtk.Label(label=label))

@@ -268,15 +268,15 @@ def zoom(units: float) -> int:
     Args:
         units (int or float): Size of item at full size
     """
-    return int(ZOOM_FACTOR * units)
+    return round(ZOOM_FACTOR * units)
 
 
 def apply_css_to_widget(widget, css: str) -> None:
     """
-    Apply CSS styling to a widget.
+    Apply CSS styling globally (GTK4 doesn't support per-widget CSS providers).
 
     Args:
-        widget: Widget to style
+        widget: Widget to style (ignored in GTK4, CSS is global)
         css (str): CSS string to apply
     """
     if not GTK_AVAILABLE:
@@ -286,11 +286,77 @@ def apply_css_to_widget(widget, css: str) -> None:
         css_provider = Gtk.CssProvider()
         css_provider.load_from_string(css)
 
-        context = widget.get_style_context()
-        context.add_provider(css_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        Gtk.StyleContext.add_provider_for_display(
+            Gdk.Display.get_default(),
+            css_provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
     except Exception as e:
         logging.warning(f"Failed to apply CSS: {e}")
 
+
+_BASE_CSS = """
+window, box, grid {
+    padding: 0px;
+}
+button {
+    padding: 4px;
+    margin: 0px;
+    min-height: 24px;
+    min-width: 24px;
+}
+toolbar {
+    padding: 0px;
+}
+toolbar button {
+    padding: 2px;
+}
+
+/* Tray button styling to resolve layout overflow in GTK4 */
+button.tray-button, .tray-button {
+    margin: 0px;
+    padding: 0px;
+    min-width: 32px;
+    min-height: 32px;
+}
+
+/* Palette styling for GTK4 */
+.palette, SugarPaletteMenuWidget, SugarPaletteWindowWidget {
+    background-color: #000000;
+    color: #FFFFFF;
+    border-radius: 11px;
+    border: 2px solid #808080;
+}
+.palette * {
+    color: #FFFFFF;
+}
+.palette *:disabled {
+    color: #808080;
+}
+
+/* Search bar and toolbar entry styling */
+.toolbar entry, .toolbar .entry {
+    background-color: #ffffff;
+    color: #000000;
+    border: 1px solid #808080;
+}
+"""
+
+def _init_global_css():
+    if not GTK_AVAILABLE:
+        return
+    try:
+        css_provider = Gtk.CssProvider()
+        css_provider.load_from_string(_BASE_CSS)
+        Gtk.StyleContext.add_provider_for_display(
+            Gdk.Display.get_default(),
+            css_provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+    except Exception as e:
+        logging.warning(f"Failed to apply base CSS: {e}")
+
+_init_global_css()
 
 ZOOM_FACTOR = _compute_zoom_factor()  #: Scale factor, as float (eg. 0.72, 1.0)
 

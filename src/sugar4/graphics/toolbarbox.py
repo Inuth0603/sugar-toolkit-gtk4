@@ -1,4 +1,4 @@
-﻿# Copyright (C) 2009, Aleksey Lim
+# Copyright (C) 2009, Aleksey Lim
 # Copyright (C) 2025 MostlyK
 #
 # This library is free software; you can redistribute it and/or
@@ -122,7 +122,7 @@ class ToolbarButton(ToolButton):
         )
 
     def is_expanded(self):
-        return self.page is not None and not self.is_in_palette()
+        return getattr(self, '_expanded', False)
 
     def popdown(self):
         palette = self.get_palette()
@@ -153,6 +153,7 @@ class ToolbarButton(ToolButton):
         self._unparent()
         _setup_page(self.page_widget, style.COLOR_TOOLBAR_GREY, box.get_padding())
         box.append(self.page_widget)
+        self.page_widget.set_visible(True)
 
         self._expanded = True
         self.add_css_class("expanded")
@@ -483,8 +484,13 @@ def _setup_page(page_widget, color, hpad):
 
     page = _get_embedded_page(page_widget)
     if page:
+        # GTK4 global CSS workaround: Give this specific widget a unique class
+        import uuid
+        cls_name = f"toolbar-page-{uuid.uuid4().hex[:8]}"
+        page.add_css_class(cls_name)
+        
         css = f"""
-        * {{
+        .{cls_name} {{
             background: {color.get_css_rgba()};
         }}
         """

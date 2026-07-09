@@ -572,6 +572,7 @@ class Icon(Gtk.Widget):
         icon_name: Optional[str] = None,
         file_name: Optional[str] = None,
         pixel_size: int = STANDARD_ICON_SIZE,
+        **kwargs
     ):
         self._buffer = _IconBuffer()
         super().__init__(**kwargs)

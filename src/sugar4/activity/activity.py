@@ -1,4 +1,4 @@
-﻿# Copyright (C) 2006-2007 Red Hat, Inc.
+# Copyright (C) 2006-2007 Red Hat, Inc.
 # Copyright (C) 2007-2009 One Laptop Per Child
 # Copyright (C) 2010 Collabora Ltd. <http://www.collabora.co.uk/>
 # Copyright (C) 2025 MostlyK
@@ -1471,7 +1471,7 @@ class Activity(Window):
         """
         self._busy_count -= 1
         if self._busy_count == 0:
-            self.set_cursor(None)
+            self.set_cursor(Gdk.Cursor.new_from_name("default", None))
         return self._busy_count
 
 

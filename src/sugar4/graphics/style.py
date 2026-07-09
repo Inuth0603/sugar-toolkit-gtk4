@@ -346,17 +346,37 @@ def _init_global_css():
     if not GTK_AVAILABLE:
         return
     try:
+        display = Gdk.Display.get_default()
+        if display is None:
+            return
+            
         css_provider = Gtk.CssProvider()
         css_provider.load_from_string(_BASE_CSS)
         Gtk.StyleContext.add_provider_for_display(
-            Gdk.Display.get_default(),
+            display,
             css_provider,
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
+        
+        # Load Sugar theme CSS (sugar.css)
+        import os
+        sugar_css_path = os.environ.get('SUGAR_CSS_PATH')
+        if not sugar_css_path:
+            sugar_css_path = os.path.expanduser('~/nix-sugar-workspace/sugar/data/sugar.css')
+        
+        if os.path.exists(sugar_css_path):
+            theme_provider = Gtk.CssProvider()
+            theme_provider.load_from_path(sugar_css_path)
+            Gtk.StyleContext.add_provider_for_display(
+                display,
+                theme_provider,
+                Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+            )
+            logging.warning(f"Successfully loaded sugar.css from {sugar_css_path}")
+        else:
+            logging.warning(f"Could not find sugar.css at {sugar_css_path}")
     except Exception as e:
         logging.warning(f"Failed to apply base CSS: {e}")
-
-_init_global_css()
 
 ZOOM_FACTOR = _compute_zoom_factor()  #: Scale factor, as float (eg. 0.72, 1.0)
 

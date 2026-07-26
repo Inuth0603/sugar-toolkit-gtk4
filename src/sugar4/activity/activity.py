@@ -345,7 +345,10 @@ class Activity(Window):
 
         # Set up signal handling early
         if hasattr(GLib, "unix_signal_add"):
-            GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, self.close)
+            def _sigint_handler():
+                self.close()
+                return GLib.SOURCE_CONTINUE
+            GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, _sigint_handler)
 
         # Stuff that needs to be done early
         icons_path = os.path.join(get_bundle_path(), "icons")
@@ -1367,6 +1370,7 @@ class Activity(Window):
         self.emit("closing")
         if not self._closing:
             if not self._prepare_close(skip_save):
+                self.unbusy()
                 return
 
         if not self._updating_jobject:

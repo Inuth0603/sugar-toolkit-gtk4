@@ -296,8 +296,8 @@ class PaletteMenuItem(Gtk.Button):
         # gesture controllers for hover effects
         self._setup_gestures()
 
-        # Connect to activate signal
-        self.connect("activate", self._clicked_cb)
+        # We override connect() below to map "activate" to "clicked"
+        # so that legacy clients get what they expect.
 
     def _on_activate(self, button):
         """Handle button activation - emits our custom signal."""
@@ -336,9 +336,10 @@ class PaletteMenuItem(Gtk.Button):
         motion_controller.connect("leave", self._on_leave_notify)
         self.add_controller(motion_controller)
 
-    def _clicked_cb(self, button):
-        """Handle button click and emit activate signal."""
-        self.emit("activate")
+    def connect(self, detailed_signal, handler, *args, **kwargs):
+        if detailed_signal == "activate":
+            detailed_signal = "clicked"
+        return super().connect(detailed_signal, handler, *args, **kwargs)
 
     def _on_enter_notify(self, controller, x, y):
         """Handle mouse enter event."""

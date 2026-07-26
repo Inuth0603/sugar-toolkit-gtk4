@@ -112,9 +112,9 @@ class _HeaderItem(Gtk.Widget):
             rect.width = width
             rect.height = line_height
 
-        snapshot.append_color(
-            color, Graphene.Rect().init(rect.x, rect.y, rect.width, rect.height)
-        )
+            snapshot.append_color(
+                color, Graphene.Rect().init(rect.x, rect.y, rect.width, rect.height)
+            )
 
         if self._child_widget:
             self.snapshot_child(self._child_widget, snapshot)
@@ -439,6 +439,10 @@ class Palette(PaletteWindow):
     def __widget_button_release_cb(self, gesture, n_press, x, y):
         # Check if the event widget is a PaletteMenuItem
         widget = gesture.get_widget()
+        if hasattr(widget, "pick"):
+            picked = widget.pick(x, y, Gtk.PickFlags.DEFAULT)
+            if picked:
+                widget = picked
         while widget:
             if isinstance(widget, PaletteMenuItem):
                 self.popdown(immediate=True)
@@ -448,11 +452,11 @@ class Palette(PaletteWindow):
 
     def get_label_width(self):
         # GTK4: Get preferred width
-        min_width, nat_width = self._label.get_preferred_size()
+        min_width, nat_width, _, _ = self._label.measure(Gtk.Orientation.HORIZONTAL, -1)
         accel_width = 0
         if hasattr(self._label, "get_accel_width"):
             accel_width = self._label.get_accel_width()
-        return nat_width.width + accel_width
+        return nat_width + accel_width
 
     def _update_separators(self):
         # Check if there are content children

@@ -103,7 +103,7 @@ class ToolbarButton(ToolButton):
 
         self.page_widget, alignment_ = _embed_page(_Box(self), page)
         self.page_widget.set_size_request(-1, style.GRID_CELL_SIZE)
-        page.show()
+        page.set_visible(True)
 
         if self.get_palette() is None:
             self.set_palette(_ToolbarPalette(invoker=ToolInvoker(self)))
@@ -541,7 +541,7 @@ def _setup_page(page_widget, color, hpad):
 
 
 def _embed_page(page_widget, page):
-    page.show()
+    page.set_visible(True)
 
     # Box instead of Alignment
     container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
@@ -550,10 +550,10 @@ def _embed_page(page_widget, page):
     # The toolbar should not absorb extra vertical space; keep it compact.
     container.set_vexpand(False)
     container.append(page)
-    container.show()
+    container.set_visible(True)
 
     page_widget.append(container)
-    page_widget.show()
+    page_widget.set_visible(True)
 
     return (page_widget, container)
 

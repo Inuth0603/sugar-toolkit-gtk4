@@ -510,6 +510,7 @@ class PaletteWindow(GObject.GObject):
             self._widget.connect("destroy", self.__destroy_cb)
             self._widget.connect("enter-notify", self.__enter_notify_cb)
             self._widget.connect("leave-notify", self.__leave_notify_cb)
+            self._widget.connect("notify::visible", self.__visibility_changed_cb)
 
         # Set up key event controller for GTK4
         self._key_controller = Gtk.EventControllerKey()
@@ -806,19 +807,17 @@ class PaletteWindow(GObject.GObject):
             self.popdown()
             return True
 
-    def __show_cb(self, widget):
-        if self._invoker is not None and hasattr(self._invoker, "notify_popup"):
-            self._invoker.notify_popup()
-
-        self._up = True
-        self.emit("popup")
-
-    def __hide_cb(self, widget):
-        if self._invoker and hasattr(self._invoker, "notify_popdown"):
-            self._invoker.notify_popdown()
-
-        self._up = False
-        self.emit("popdown")
+    def __visibility_changed_cb(self, widget, pspec):
+        if widget.get_visible():
+            if self._invoker is not None and hasattr(self._invoker, "notify_popup"):
+                self._invoker.notify_popup()
+            self._up = True
+            self.emit("popup")
+        else:
+            if self._invoker and hasattr(self._invoker, "notify_popdown"):
+                self._invoker.notify_popdown()
+            self._up = False
+            self.emit("popdown")
 
     def get_rect(self):
         if not self._widget:
